@@ -6,7 +6,11 @@ app = Flask(__name__)
 def get_prices_from_homeday(city_slug):
     url = f"https://www.homeday.de/de/preisatlas/{city_slug}"
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+    browser = p.chromium.launch(
+    headless=True,
+    args=["--no-sandbox"]
+)
+
         page = browser.new_page()
         page.goto(url)
         page.wait_for_selector('.price-block__price__average', timeout=5000)
