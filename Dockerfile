@@ -4,11 +4,7 @@ WORKDIR /app
 
 COPY . .
 
-# Installiere Python-Abhängigkeiten
 RUN pip install --no-cache-dir -r requirements.txt
-
-# Installiere Browser + alle System-Dependencies für Playwright
-RUN playwright install --with-deps
 
 EXPOSE 5000
 
