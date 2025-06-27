@@ -33,7 +33,7 @@ def preise():
 
     # URL bauen
     if strasse and plz:
-        url = f"https://www.homeday.de/de/preisatlas/{stadt}/{strasse}+{plz}?marketing_type={marketing_type}&property_type={property_type}&map_layer=standard"
+        url = f"https://www.homeday.de/de/preisatlas/{stadt}/{strasse},+{plz}?marketing_type={marketing_type}&property_type={property_type}&map_layer=standard"
     else:
         url = f"https://www.homeday.de/de/preisatlas/{stadt}?marketing_type={marketing_type}&property_type={property_type}&map_layer=standard"
 
