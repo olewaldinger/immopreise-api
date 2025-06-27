@@ -7,7 +7,7 @@ app = Flask(__name__)
 def preise():
     stadt = request.args.get("stadt")
     marketing_type = request.args.get("marketing_type", "buy").lower()
-    property_type = request.args.get("property_type", "").lower()
+    property_type = request.args.get("property_type", "").lower()  # optional
 
     if not stadt:
         return jsonify({"error": "Parameter 'stadt' fehlt."}), 400
@@ -15,7 +15,7 @@ def preise():
     if marketing_type not in ["buy", "rent"]:
         return jsonify({"error": "Ungültiger Wert für 'marketing_type'. Erlaubt: 'buy' oder 'rent'."}), 400
 
-    url = f"https://www.homeday.de/preisatlas/{stadt.lower()}/?marketing_type={marketing_type}"
+    url = f"https://www.homeday.de/de/preisatlas/{stadt.lower()}?marketing_type={marketing_type}"
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
@@ -23,27 +23,37 @@ def preise():
         page.goto(url)
 
         try:
-            page.wait_for_selector("div[data-testid='price-table'] td", timeout=5000)
-            zellen = page.locator("div[data-testid='price-table'] td").all_text_contents()
+            page.wait_for_selector("div.price-block", timeout=5000)
+            blocks = page.locator("div.price-block").all()
         except:
             browser.close()
             return jsonify({"error": f"Preisdaten für '{stadt}' konnten nicht geladen werden."}), 500
 
+        haus_preis = None
+        wohnung_preis = None
+
+        for block in blocks:
+            icon_class = block.locator("div[class*='price-block__property__icon']").get_attribute("class")
+            preis = block.locator("p.price-block__price__average").inner_text()
+
+            if "house" in icon_class:
+                haus_preis = preis
+            elif "apartment" in icon_class:
+                wohnung_preis = preis
+
         browser.close()
 
-        # Die Tabelle ist wie folgt aufgebaut:
-        # Zellen = ["Haus", "Ø 13,50 €/m²", "Wohnung", "Ø 11,20 €/m²"]
         ergebnis = {"typ": "miete" if marketing_type == "rent" else "kauf"}
-        for i in range(0, len(zellen) - 1, 2):
-            label = zellen[i].lower()
-            wert = zellen[i + 1]
 
-            if "haus" in label:
-                key = "haus_" + ("mietpreis_m2" if marketing_type == "rent" else "kaufpreis_m2")
-                ergebnis[key] = wert
-            elif "wohnung" in label:
-                key = "wohnung_" + ("mietpreis_m2" if marketing_type == "rent" else "kaufpreis_m2")
-                ergebnis[key] = wert
+        if property_type == "house" and haus_preis:
+            ergebnis["haus_" + ("mietpreis_m2" if marketing_type == "rent" else "kaufpreis_m2")] = haus_preis
+        elif property_type == "apartment" and wohnung_preis:
+            ergebnis["wohnung_" + ("mietpreis_m2" if marketing_type == "rent" else "kaufpreis_m2")] = wohnung_preis
+        elif property_type == "":
+            if haus_preis:
+                ergebnis["haus_" + ("mietpreis_m2" if marketing_type == "rent" else "kaufpreis_m2")] = haus_preis
+            if wohnung_preis:
+                ergebnis["wohnung_" + ("mietpreis_m2" if marketing_type == "rent" else "kaufpreis_m2")] = wohnung_preis
 
         if len(ergebnis) <= 1:
             return jsonify({"error": "Nicht genügend Preisdaten gefunden."}), 404
