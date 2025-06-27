@@ -1,22 +1,21 @@
 from flask import Flask, request, jsonify
 from playwright.sync_api import sync_playwright
-import urllib.parse
 
 app = Flask(__name__)
 
-def normalize_location(text):
-    # Ersetzt Umlaute und Leerzeichen für URL
-    replacements = {
-        'ä': 'ae', 'ö': 'oe', 'ü': 'ue', 'ß': 'ss',
-        'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue'
-    }
-    for search, replace in replacements.items():
-        text = text.replace(search, replace)
-    return urllib.parse.quote_plus(text.strip().lower())
+def normalize(text):
+    return (
+        text.lower()
+        .replace("ä", "ae")
+        .replace("ö", "oe")
+        .replace("ü", "ue")
+        .replace("ß", "ss")
+        .replace(" ", "-")
+    )
 
 @app.route("/api/preise")
 def preise():
-    stadt = request.args.get("stadt")
+    stadt = request.args.get("stadt", "")
     strasse = request.args.get("strasse", "")
     plz = request.args.get("plz", "")
     marketing_type = request.args.get("marketing_type", "sell").lower()
@@ -25,14 +24,18 @@ def preise():
     if not stadt:
         return jsonify({"error": "Parameter 'stadt' fehlt."}), 400
 
-    # URL-Pfad zusammensetzen
-    pfad = normalize_location(stadt)
-    if strasse and plz:
-        pfad += "/" + normalize_location(f"{strasse}, {plz}")
+    if marketing_type not in ["sell", "rent"]:
+        return jsonify({"error": "Ungültiger Wert für 'marketing_type'. Erlaubt: 'sell' oder 'rent'."}), 400
 
-    url = f"https://www.homeday.de/de/preisatlas/{pfad}?marketing_type={marketing_type}"
-    if property_type:
-        url += f"&property_type={property_type}"
+    stadt = normalize(stadt)
+    strasse = normalize(strasse)
+    plz = plz.strip()
+
+    # URL bauen
+    if strasse and plz:
+        url = f"https://www.homeday.de/de/preisatlas/{stadt}/{strasse}+{plz}?marketing_type={marketing_type}&property_type={property_type}&map_layer=standard"
+    else:
+        url = f"https://www.homeday.de/de/preisatlas/{stadt}?marketing_type={marketing_type}&property_type={property_type}&map_layer=standard"
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
@@ -45,19 +48,26 @@ def preise():
             texts = [el.inner_text().strip() for el in elements]
         except:
             browser.close()
-            return jsonify({"error": f"Preisdaten für '{pfad}' konnten nicht geladen werden."}), 500
+            return jsonify({"error": f"Preisdaten für '{stadt}' konnten nicht geladen werden."}), 500
 
         browser.close()
 
         if len(texts) < 2:
             return jsonify({"error": "Nicht genügend Preisdaten gefunden."}), 404
 
-        # Haus = immer zweiter Eintrag bei Miet- und Kaufpreisen
-        return {
-            "wohnung_" + ("mietpreis_m2" if marketing_type == "rent" else "kaufpreis_m2"): texts[0],
-            "haus_" + ("mietpreis_m2" if marketing_type == "rent" else "kaufpreis_m2"): texts[1],
-            "typ": "miete" if marketing_type == "rent" else "kauf"
-        }
+        # Reihenfolge beachten (Wohnung kommt zuerst)
+        if marketing_type == "rent":
+            return {
+                "wohnung_mietpreis_m2": texts[0],
+                "haus_mietpreis_m2": texts[1],
+                "typ": "miete"
+            }
+        else:
+            return {
+                "haus_kaufpreis_m2": texts[0],
+                "wohnung_kaufpreis_m2": texts[1],
+                "typ": "kauf"
+            }
 
 if __name__ == "__main__":
     app.run(debug=False, host="0.0.0.0", port=5000)
